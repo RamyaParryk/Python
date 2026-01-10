@@ -47,8 +47,11 @@ cd リポジトリ名
 
 # X (Twitter) Settings
 X_API_KEY=あなたのAPI_KEY
+
 X_API_SECRET=あなたのAPI_SECRET
+
 X_ACCESS_TOKEN=あなたのACCESS_TOKEN
+
 X_ACCESS_SECRET=あなたのACCESS_SECRET
 
 # Google Gemini Settings
