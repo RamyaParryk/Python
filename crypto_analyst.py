@@ -24,11 +24,27 @@ if os.name == 'nt':
         pass
 
 # ==========================================
-# 設定: パス設定
+# 設定: パス設定 & ログ機能
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.path.join(BASE_DIR, "analyst_bot.log")
 # 読み込む設定ファイル名を指定
 ENV_FILE = os.path.join(BASE_DIR, "X-GoogleAPI.env")
+
+def log(message):
+    """ログをコンソールとファイルに出力"""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    msg = f"[{timestamp}] {message}"
+    # コンソールにも即時出力
+    print(msg, flush=True)
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+            # ★ここを追加: バッファに溜めずに強制的にディスクに書き込む
+            f.flush()
+            os.fsync(f.fileno())
+    except:
+        pass
 
 # ==========================================
 # 自動インストール機能
@@ -46,11 +62,11 @@ def install_libraries():
                 module_name = lib
             __import__(module_name)
         except ImportError:
-            print(f"Installing {lib}...")
+            log(f"Installing {lib}...")
             try:
                 subprocess.check_call([sys.executable, "-m", "pip", "install", lib])
             except Exception as e:
-                print(f"Failed to install {lib}: {e}")
+                log(f"Failed to install {lib}: {e}")
 
 # ライブラリ読み込み
 try:
@@ -61,7 +77,7 @@ try:
     import google.generativeai as genai
     from dotenv import load_dotenv
 except ImportError:
-    print("必要なライブラリが見つかりません。自動インストールを試みます...")
+    log("必要なライブラリが見つかりません。自動インストールを試みます...")
     install_libraries()
     import requests
     import feedparser
@@ -73,10 +89,9 @@ except ImportError:
 # .envファイルの読み込み
 if os.path.exists(ENV_FILE):
     load_dotenv(ENV_FILE)
-    print(f"設定ファイル {os.path.basename(ENV_FILE)} を読み込みました。")
+    log(f"設定ファイル {os.path.basename(ENV_FILE)} を読み込みました。")
 else:
-    print(f"⚠️ 設定ファイル {os.path.basename(ENV_FILE)} が見つかりません。")
-    print("環境変数から設定を読み込みます。")
+    log(f"⚠️ 設定ファイル {os.path.basename(ENV_FILE)} が見つかりません。環境変数から設定を読み込みます。")
 
 # ==========================================
 # 設定エリア (環境変数から読み込み)
@@ -93,10 +108,10 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # キーチェック
 if not all([X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET, GEMINI_API_KEY]):
-    print("\n!!!! 設定エラー !!!!")
-    print("APIキーが正しく読み込めませんでした。")
-    print(f"同じフォルダに {os.path.basename(ENV_FILE)} ファイルがあるか確認してください。")
-    print("内容が正しいか（X_API_KEY=... の形式）も確認してください。")
+    log("!!!! 設定エラー !!!!")
+    log("APIキーが正しく読み込めませんでした。")
+    log(f"同じフォルダに {os.path.basename(ENV_FILE)} ファイルがあるか確認してください。")
+    log("内容が正しいか（X_API_KEY=... の形式）も確認してください。")
 
 # 3. ニュースソース (カテゴリ別に整理・拡充)
 RSS_URLS = [
@@ -150,7 +165,6 @@ IGNORE_KEYWORDS = [
 def get_crypto_prices():
     """CoinGeckoから主要通貨の価格を取得"""
     url = "https://api.coingecko.com/api/v3/simple/price"
-    # 主要5通貨 + ミーム(DOGE) + AI(FET) + DeFi(UNI) + GameFi(IMX) + Gold(XAUT) + Privacy(XMR)
     params = {
         "ids": "bitcoin,ethereum,ripple,solana,binancecoin,dogecoin,fetch-ai,uniswap,immutable-x,tether-gold,monero",
         "vs_currencies": "jpy",
@@ -180,7 +194,7 @@ def get_crypto_prices():
         text += add_coin("monero", "XMR")
         return text
     except Exception as e:
-        print(f"価格取得エラー: {e}")
+        log(f"価格取得エラー: {e}")
         return "価格データの取得に失敗しました。"
 
 def get_latest_news_headlines():
@@ -220,13 +234,13 @@ def generate_analysis_tweet(prices, news):
     """Gemini APIを使って分析ツイートを生成"""
     # キーが読み込めていない場合は中止
     if not GEMINI_API_KEY:
-        print("❌ エラー: GEMINI_API_KEY が読み込めませんでした。")
+        log("❌ エラー: GEMINI_API_KEY が読み込めませんでした。")
         return None
 
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # モデル優先順: 2.0系を削除し、3系のみを使用
-    models_to_try = ['gemini-3-pro-preview', 'gemini-3-flash-preview']
+    # モデル優先順
+    models_to_try = ['gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.0-flash']
 
     angles = [
         "マクロ経済（FOMC、雇用統計、株価）と仮想通貨の連動性を鋭く分析",
@@ -239,11 +253,11 @@ def generate_analysis_tweet(prices, news):
         "今盛り上がっている特定のセクター（AI、ミーム等）やテーマ株にフォーカスした分析"
     ]
     current_angle = random.choice(angles)
-    print(f"今回の分析テーマ: {current_angle}")
+    log(f"今回の分析テーマ: {current_angle}")
 
     for model_name in models_to_try:
         try:
-            # print(f"AIモデル ({model_name}) で生成を試みます...")
+            # log(f"AIモデル ({model_name}) で生成を試みます...")
             model = genai.GenerativeModel(model_name)
 
             prompt = f"""
@@ -270,26 +284,26 @@ def generate_analysis_tweet(prices, news):
             text = response.text.strip()
             
             if len(text) > 140:
-                 print("⚠️ 文字数調整を行います")
+                 log("⚠️ 文字数調整を行います")
                  text = text[:137] + "..."
             
-            print(f"✨ 使用モデル: {model_name}")
+            log(f"✨ 使用モデル: {model_name}")
             return text
             
         except Exception as e:
-            # print(f"⚠️ {model_name} エラー: {e}")
+            # log(f"⚠️ {model_name} エラー: {e}")
             time.sleep(1)
             continue
 
-    print("❌ 全てのモデルで生成失敗")
+    log("❌ 全てのモデルで生成失敗")
     return None
 
 def job():
-    print(f"\n[{datetime.datetime.now()}] 分析開始...")
+    log(f"分析を開始します...")
     
     # APIキーの存在チェック
     if not all([X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, X_ACCESS_SECRET]):
-        print("❌ エラー: X APIキーが読み込めませんでした。処理をスキップします。")
+        log("❌ エラー: X APIキーが読み込めませんでした。処理をスキップします。")
         return
 
     prices = get_crypto_prices()
@@ -299,31 +313,30 @@ def job():
     tweet_text = generate_analysis_tweet(prices, news)
     
     if tweet_text:
-        print("\n--- ツイート内容 ---")
-        print(tweet_text)
+        log("--- ツイート内容 ---")
+        log(tweet_text)
         try:
             client = tweepy.Client(
                 consumer_key=X_API_KEY, consumer_secret=X_API_SECRET,
                 access_token=X_ACCESS_TOKEN, access_token_secret=X_ACCESS_SECRET
             )
             client.create_tweet(text=tweet_text)
-            print("✅ 投稿成功！")
+            log("✅ 投稿成功！")
         except Exception as e:
-            print(f"\n❌ 投稿エラー: {e}")
+            log(f"❌ 投稿エラー: {e}")
             if hasattr(e, 'response') and e.response is not None:
-                print(f"詳細情報: {e.response.text}")
+                log(f"詳細情報: {e.response.text}")
     else:
-        print("スキップします。")
+        log("スキップします。")
 
 if __name__ == "__main__":
     try:
-        print("AI相場分析Bot (Windows v4.4 Gemini3-Pro) 起動")
+        log("=== AI Crypto Analyst Bot (Windows v4.6 Flush-Log) Started ===")
         
         # PCの現在時刻を表示
         now = datetime.datetime.now()
-        print(f"PCの現在時刻: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+        log(f"PCの現在時刻: {now.strftime('%Y-%m-%d %H:%M:%S')}")
         
-        # スケジュール登録
         schedule.every().day.at("01:45").do(job)
         schedule.every().day.at("07:45").do(job)
         schedule.every().day.at("11:45").do(job)
@@ -331,20 +344,20 @@ if __name__ == "__main__":
         schedule.every().day.at("21:45").do(job)
         
         # テスト実行（初回のみ）
-        print("起動時テストを実行します...")
+        log("起動時テストを実行します...")
         job()
 
         # 次回実行予定を表示
-        print("\n--- 次回実行スケジュール ---")
+        log("--- 次回実行スケジュール ---")
         for j in schedule.get_jobs():
-            print(f"次回実行: {j.next_run.strftime('%Y-%m-%d %H:%M:%S')}")
-        print("----------------------------\n")
+            log(f"次回実行: {j.next_run.strftime('%Y-%m-%d %H:%M:%S')}")
+        log("----------------------------")
 
-        print("スケジュール待機中... (画面を閉じると停止します)")
+        log("スケジュール待機中... (画面を閉じると停止します)")
         while True:
             schedule.run_pending()
             time.sleep(60)
     except Exception as e:
-        print(f"エラー発生: {e}")
-        print(traceback.format_exc())
+        log(f"エラー発生: {e}")
+        log(traceback.format_exc())
         input("Enterキーを押して終了...")

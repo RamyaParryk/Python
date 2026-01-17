@@ -27,10 +27,14 @@ def log(message):
     """ログをコンソールとファイルに出力"""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     msg = f"[{timestamp}] {message}"
-    print(msg)
+    # コンソールにも即時出力
+    print(msg, flush=True)
     try:
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(msg + "\n")
+            # ★ここを追加: バッファに溜めずに強制的にディスクに書き込む
+            f.flush()
+            os.fsync(f.fileno())
     except:
         pass
 
@@ -229,9 +233,9 @@ def generate_analysis_tweet(prices, news):
 
     genai.configure(api_key=GEMINI_API_KEY)
     
-    # ★ここを修正: Gemini 3 Pro を最優先、次に 3 Flash
-    # 2.0系はリストから削除しました
-    models_to_try = ['gemini-3-pro-preview', 'gemini-3-flash-preview']
+    # モデル優先順: ユーザー発見のPreview版を最優先に追加
+    # 3.0系がダメなら2.0にフォールバック
+    models_to_try = ['gemini-3-pro-preview', 'gemini-3-flash-preview', 'gemini-2.0-flash']
 
     # 分析の切り口をランダム化
     analysis_angles = [
@@ -304,6 +308,7 @@ def job():
     prices = get_crypto_prices()
     news = get_latest_news_headlines()
     
+    # tweet_text に統一
     tweet_text = generate_analysis_tweet(prices, news)
     
     if tweet_text:
@@ -330,7 +335,7 @@ def job():
 # メイン処理 (タイムゾーン自動補正・スケジュール確認付き)
 # ==========================================
 def main():
-    log("=== AI Crypto Analyst Bot (Linux Mode v4.4 Gemini3-Pro) Started ===")
+    log("=== AI Crypto Analyst Bot (Linux Mode v4.6 Flush-Log) Started ===")
     
     # サーバーの現在時刻を確認
     now = datetime.datetime.now()
@@ -357,6 +362,8 @@ def main():
         schedule.every().day.at("17:45").do(job)
         schedule.every().day.at("21:45").do(job)
     
+    # 生存確認ログ(heartbeat)は削除
+
     # 次回実行予定を表示
     log("--- 次回実行スケジュール ---")
     for j in schedule.get_jobs():
